@@ -265,18 +265,50 @@ const PRELUDE = `/*
               Module.removeRunDependency('iwad');
             })
             .catch(function (error) {
-              // Surfaced rather than swallowed: without the IWAD the engine
-              // exits with a bare I_Error the reader cannot act on.
-              Module.printErr('Doom could not load its game data: ' + error.message);
-              Module.removeRunDependency('iwad');
+              // Do NOT resume startup. Without game data the engine hits
+              // "IWAD file not found", exits during startup, and leaves a
+              // black inert canvas. Removing the dependency here would
+              // start it anyway, so the reader would watch it fail with no
+              // stated reason.
+              //
+              // Reported via console.error, NOT by rethrowing. The frame
+              // bootstrap relays both, but an exception thrown from this
+              // file crosses an origin boundary on the way to
+              // window.onerror and arrives as a bare "Script error." with
+              // the message stripped -- measured, the first version of
+              // this fix did exactly that. console.error keeps the text.
+              //
+              // Something has to reach the editor either way: review found
+              // that catching the rejection to log it was a REGRESSION,
+              // because the previous createPreloadedFile had no error
+              // callback and its unhandled rejection did reach the relay.
+              var message = 'Doom could not load its game data: ' + error.message;
+              try {
+                var canvas = document.getElementById('canvas');
+                var note = document.createElement('p');
+                note.textContent = message;
+                note.setAttribute('role', 'alert');
+                note.style.cssText = 'font:14px system-ui;color:#b91c1c;text-align:center';
+                (canvas && canvas.parentNode ? canvas.parentNode : document.body).appendChild(note);
+              } catch (e) {
+                // A DOM the author replaced is not a reason to lose the throw.
+              }
+              console.error(message);
             });
         },
       ],
       onRuntimeInitialized: function () {
         Module.callMain(Module.arguments);
       },
+      // stdout stays local: Doom narrates its whole startup and the frame
+      // caps relayed diagnostics, so ordinary tracing would crowd out real
+      // failures. stderr is the opposite -- I_Error writes here, and the
+      // bootstrap relays console.error to the editor, which is the only way
+      // a reader learns why a preview went black.
       print: function () {},
-      printErr: function () {},
+      printErr: function (text) {
+        console.error(text);
+      },
     };
 
     /* BEGIN emscripten glue */
