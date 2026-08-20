@@ -100,21 +100,27 @@
 
 #include <inttypes.h>
 
-#if defined(__cplusplus) || defined(__bool_true_false_are_defined)
+// `boolean` must be ONE int-sized type in every translation unit.
+//
+// The original conditional typedef gave a TU that had (transitively)
+// included <stdbool.h> a 1-byte `bool` and every other TU a 4-byte
+// enum. Under emscripten's clang the modern SDL headers pull in
+// <stdbool.h>, so the two halves of the program disagreed on the size
+// of every `boolean` global: a 4-byte store to `netgame` from one TU
+// overwrote its neighbours (caught by AddressSanitizer as a
+// global-buffer-overflow on `netgame`, and observed as a wasm OOB trap
+// in P_PlayerThink about five seconds in).
+//
+// `int`, not `bool`: vanilla stores TRI-STATE values in `boolean`
+// fields — `R_InstallSpriteLump` memsets `sprtemp` to -1 for
+// "rotation undetermined" and later does `switch ((int)...rotate)` on
+// `case -1`. A real 1-byte bool narrows -1 to `true` and the sprite
+// loader then rejects a legitimate WAD ("has rotations and a rot=0
+// lump"). An int-sized boolean is both self-consistent and faithful to
+// the original semantics.
+#include <stdbool.h>
 
-// Use builtin bool type with C++.
-
-typedef bool boolean;
-
-#else
-
-typedef enum 
-{
-    false, 
-    true
-} boolean;
-
-#endif
+typedef int boolean;
 
 typedef uint8_t byte;
 typedef uint8_t pixel_t;
