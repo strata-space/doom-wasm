@@ -54,15 +54,17 @@ const PRELUDE = `/*
  *   implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
  *   PURPOSE. See the GNU General Public License for more details.
  *
- * WRITTEN OFFER FOR SOURCE (GPL-2.0 section 3b): this file is a compiled
- * work. Its corresponding source is github.com/cloudflare/doom-wasm at
- * commit 65e0d3ae2ffa604155eebd96ed40da6567bd08f4, plus the two patches
- * Strata applies to it (consistent boolean width, Emscripten link flags)
- * and the build script that applies them. Strata will provide a complete
- * machine-readable copy of that corresponding source, including the
- * patches and build scripts, to any third party on request at
- * legal@strata.space, for at least three years from the date this file
- * was distributed, at no charge beyond the cost of delivery.
+ * SOURCE: this file is a compiled work, and its complete corresponding
+ * source is published at
+ *
+ *   https://github.com/strata-space/doom-wasm
+ *
+ * which is github.com/cloudflare/doom-wasm at commit
+ * 65e0d3ae2ffa604155eebd96ed40da6567bd08f4 with two patches applied
+ * (consistent boolean width, Emscripten link flags), alongside the build
+ * and compose scripts that produced this file. Accompanying the binary
+ * with its source this way is what GPL-2.0 asks for; no request or
+ * correspondence is needed.
  *
  * GAME DATA: Freedoom (freedoom1.wad), BSD 3-Clause, from
  *   github.com/freedoom/freedoom. Copyright (C) 2001-2024 Contributors
@@ -234,9 +236,40 @@ const PRELUDE = `/*
       },
       preRun: [
         function () {
-          // Fetched over XHR by Emscripten's preload, which the frame
-          // bootstrap admits only for this exact URL.
-          Module.FS.createPreloadedFile('', IWAD_NAME, IWAD_URL, true, true);
+          // Fetched here rather than via createPreloadedFile so the bytes
+          // can be handed to MEMFS with canOwn.
+          //
+          // createPreloadedFile downloads into an ArrayBuffer and then MEMFS
+          // COPIES it, so a 27.5 MB IWAD costs ~55 MB at peak. On a phone
+          // that transient double is the difference between fitting in the
+          // tab's budget and being discarded, and it buys nothing: the
+          // fetched buffer has no other owner. canOwn hands it over instead.
+          //
+          // The run-dependency pair is what makes an async fetch legal in
+          // preRun: the runtime waits for the file before main() reads it.
+          Module.addRunDependency('iwad');
+          fetch(IWAD_URL)
+            .then(function (response) {
+              if (!response.ok) throw new Error('IWAD ' + response.status);
+              return response.arrayBuffer();
+            })
+            .then(function (buffer) {
+              Module.FS.createDataFile(
+                '/',
+                IWAD_NAME,
+                new Uint8Array(buffer),
+                true,
+                true,
+                true,
+              );
+              Module.removeRunDependency('iwad');
+            })
+            .catch(function (error) {
+              // Surfaced rather than swallowed: without the IWAD the engine
+              // exits with a bare I_Error the reader cannot act on.
+              Module.printErr('Doom could not load its game data: ' + error.message);
+              Module.removeRunDependency('iwad');
+            });
         },
       ],
       onRuntimeInitialized: function () {
